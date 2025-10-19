@@ -72,12 +72,13 @@ void saxpyCuda(int N, float alpha, float* xarray, float* yarray, float* resultar
     //
     // CS149 TODO: allocate device memory buffers on the GPU using cudaMalloc.
     //
-    cudaMalloc(&device_x, N);
-    cudaMalloc(&device_y, N);
-    cudaMalloc(&device_result, N);
+    int byteSize = sizeof(float)*N;
+    cudaMalloc(&device_x, byteSize);
+    cudaMalloc(&device_y, byteSize);
+    cudaMalloc(&device_result, byteSize);
 
-    cudaMemcpy(device_x, xarray, N, cudaMemcpyHostToDevice);
-    cudaMemcpy(device_y, yarray, N, cudaMemcpyHostToDevice);
+    cudaMemcpy(device_x, xarray, byteSize, cudaMemcpyHostToDevice);
+    cudaMemcpy(device_y, yarray, byteSize, cudaMemcpyHostToDevice);
 
 
     // We highly recommend taking a look at NVIDIA's
@@ -103,7 +104,7 @@ void saxpyCuda(int N, float alpha, float* xarray, float* yarray, float* resultar
     //
     // CS149 TODO: copy result from GPU back to CPU using cudaMemcpy
     //
-    cudaMemcpy(resultarray , device_result, N, cudaMemcpyDeviceToHost);
+    cudaMemcpy(resultarray , device_result, byteSize, cudaMemcpyDeviceToHost);
     
     // end timing after result has been copied back into host memory
     double endTime1 = CycleTimer::currentSeconds();
