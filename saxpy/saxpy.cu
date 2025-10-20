@@ -66,13 +66,20 @@ void saxpyCuda(int N, float alpha, float* xarray, float* yarray, float* resultar
     float* device_y = nullptr;
     float* device_result = nullptr;
 
+    int byteSize = sizeof(float)*N;
+
+    float* xarrayPinned;
+    float* yarrayPinned;
+    cudaMallocHost(&xarrayPinned , byteSize);
+    cudaMallocHost(&yarrayPinned , byteSize);
+    memcpy(xarrayPinned, xarray, byteSize);
+    memcpy(yarrayPinned, yarray, byteSize);
     // start timing after allocation of device memory
     double startTime1 = CycleTimer::currentSeconds();
 
     //
     // CS149 TODO: allocate device memory buffers on the GPU using cudaMalloc.
     //
-    int byteSize = sizeof(float)*N;
     cudaMalloc(&device_x, byteSize);
     cudaMalloc(&device_y, byteSize);
     cudaMalloc(&device_result, byteSize);

@@ -32,6 +32,36 @@ static inline int nextPow2(int n) {
 // Implementation of an exclusive scan on global memory array `input`,
 // with results placed in global memory `result`.
 //
+__device__ void scan_warp(int* input, const unsigned int idx)
+{   
+    const unsigned int warpSize = 32;
+    const unsigned int lane = idx % warpSize;
+
+    int output;
+    for (int two_d = 1; two_d <=warpSize/2; two_d*=2){
+        int two_dplus1 = 2*two_d;
+        if (lane % two_dplus1 == 0 && lane < warpSize){
+            input[lane+two_dplus1-1] += input[lane+two_d-1];
+        }
+    }
+
+    input[31] = 0;
+    for (int two_d = warpSize/2; two_d >= 1; two_d /=2 ){
+        int two_dplus1 = 2*two_d;
+        if (lane % two_dplus1 == 0 && lane < warpSize){
+            int t = input[lane+two_d-1];
+            input[lane+two_d-1] = input[lane+two_dplus1-1];
+            input[lane+two_dplus1-1] += t;
+        }
+    }
+}
+
+__global__ void scan_kernel(int* input)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    scan_warp(input, idx);
+}
+
 // N is the logical size of the input and output arrays, however
 // students can assume that both the start and result arrays we
 // allocated with next power-of-two sizes as described by the comments
@@ -53,8 +83,9 @@ void exclusive_scan(int* input, int N, int* result)
     // on the CPU.  Your implementation will need to make multiple calls
     // to CUDA kernel functions (that you must write) to implement the
     // scan.
-
-
+    int blockSize = 1024;
+    int gridSize = N/blockSize;
+    scan_kernel<<<gridSize, blockSize>>>(result);
 }
 
 
