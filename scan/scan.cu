@@ -32,7 +32,7 @@ static inline int nextPow2(int n) {
 // Implementation of an exclusive scan on global memory array `input`,
 // with results placed in global memory `result`.
 //
-__device__ void exclusive_scan_warp(int* input, int*, sumOutput, const unsigned int idx)
+__device__ void exclusive_scan_warp(int* input, int* sumOutput, const unsigned int idx)
 {   
     const unsigned int lane = idx % WARP_SIZE;
     const unsigned int warpIdx = idx/WARP_SIZE;
