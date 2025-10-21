@@ -13,7 +13,7 @@
 #include "CycleTimer.h"
 
 #define THREADS_PER_BLOCK 256
-
+#define WARP_SIZE = 32
 
 // helper function to round an integer up to the next power of 2
 static inline int nextPow2(int n) {
@@ -32,34 +32,47 @@ static inline int nextPow2(int n) {
 // Implementation of an exclusive scan on global memory array `input`,
 // with results placed in global memory `result`.
 //
-__device__ void scan_warp(int* input, const unsigned int idx)
+__device__ void exclusive_scan_warp(int* input, int*, sumOutput, const unsigned int idx)
 {   
-    const unsigned int warpSize = 32;
-    const unsigned int lane = idx % warpSize;
+    const unsigned int lane = idx % WARP_SIZE;
+    const unsigned int warpIdx = idx/WARP_SIZE;
 
-    int output;
-    for (int two_d = 1; two_d <=warpSize/2; two_d*=2){
+    int element = input[idx];    
+    for (int two_d = 1; two_d <=WARP_SIZE/2; two_d*=2){
         int two_dplus1 = 2*two_d;
-        if (lane % two_dplus1 == 0 && lane < warpSize){
-            input[lane+two_dplus1-1] += input[lane+two_d-1];
+        if (lane % two_dplus1 == 0 && lane < WARP_SIZE){
+            input[idx+two_dplus1-1] += input[idx+two_d-1];
         }
     }
 
-    input[31] = 0;
-    for (int two_d = warpSize/2; two_d >= 1; two_d /=2 ){
+    if (lane == WARP_SIZE -1) input[idx] = 0;
+
+    for (int two_d = WARP_SIZE/2; two_d >= 1; two_d /=2 ){
         int two_dplus1 = 2*two_d;
-        if (lane % two_dplus1 == 0 && lane < warpSize){
-            int t = input[lane+two_d-1];
-            input[lane+two_d-1] = input[lane+two_dplus1-1];
-            input[lane+two_dplus1-1] += t;
+        if (lane % two_dplus1 == 0 && lane < WARP_SIZE){
+            int t = input[idx+two_d-1];
+            input[idx+two_d-1] = input[idx+two_dplus1-1];
+            input[idx+two_dplus1-1] += t;
         }
+    }
+
+    if (lane == WARP_SIZE -1){
+        sumOutput[warpIdx] = input[idx] + element;
     }
 }
 
-__global__ void scan_kernel(int* input)
+__global__ void scan_kernel(int* input, int* sumOutput)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    scan_warp(input, idx);
+    exclusive_scan_warp(input, sumOutput, idx);
+}
+
+__global__ void scan_add_prefixsum(int* input, int* prefixSum)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const unsigned int warpIdx = idx/WARP_SIZE;
+
+    input[idx] += prefixSum[warpIdx];
 }
 
 // N is the logical size of the input and output arrays, however
@@ -83,9 +96,32 @@ void exclusive_scan(int* input, int N, int* result)
     // on the CPU.  Your implementation will need to make multiple calls
     // to CUDA kernel functions (that you must write) to implement the
     // scan.
-    int blockSize = 1024;
-    int gridSize = N/blockSize;
-    scan_kernel<<<gridSize, blockSize>>>(result);
+
+    if (N <= THREADS_PER_BLOCK) {
+        int* serialInput = new int[N];
+        int* serialResult = new int[N];
+        cudaMemcpy(serialInput, input, sizeof(int)*N, cudaMemcpyDeviceToHost);
+        
+        int accum = 0;
+        for (int i = 0; i < N; i++){
+            serialResult[i] = accum;
+            accum += serialInput[i]
+        }
+        cudaMemcpy(result, serialResult, sizeof(int)*N, cudaMemcpyHostToDevice);
+    } else {
+        int* sumOutput;
+        int* sumOutputResult;
+
+        cudaMalloc((void **)&sumOutput, sizeof(int) * (N/WARP_SIZE));
+        cudaMalloc((void **)&sumOutputResult, sizeof(int) * (N/WARP_SIZE));
+
+        int gridSize = N/THREADS_PER_BLOCK;
+        scan_kernel<<<gridSize, THREADS_PER_BLOCK>>>(result, sumOutput);
+        exclusive_scan(sumOutput, N/WARP_SIZE, sumOutputResult);
+
+        scan_add_prefixsum<<<gridSize, THREADS_PER_BLOCK>>>(result, sumOutput);
+    }
+    
 }
 
 
