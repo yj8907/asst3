@@ -105,7 +105,7 @@ void exclusive_scan(int* input, int N, int* result)
         int accum = 0;
         for (int i = 0; i < N; i++){
             serialResult[i] = accum;
-            accum += serialInput[i]
+            accum += serialInput[i];
         }
         cudaMemcpy(result, serialResult, sizeof(int)*N, cudaMemcpyHostToDevice);
     } else {
