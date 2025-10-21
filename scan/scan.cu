@@ -13,7 +13,7 @@
 #include "CycleTimer.h"
 
 #define THREADS_PER_BLOCK 256
-#define WARP_SIZE = 32
+#define WARP_SIZE 32
 
 // helper function to round an integer up to the next power of 2
 static inline int nextPow2(int n) {
