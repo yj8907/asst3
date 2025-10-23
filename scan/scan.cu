@@ -44,6 +44,7 @@ __device__ void exclusive_scan_warp(int* input, int* sumOutput, const unsigned i
             input[idx+two_dplus1-1] += input[idx+two_d-1];
         }
     }
+    __syncthreads();
 
     if (lane == WARP_SIZE -1) input[idx] = 0;
 
@@ -55,7 +56,8 @@ __device__ void exclusive_scan_warp(int* input, int* sumOutput, const unsigned i
             input[idx+two_dplus1-1] += t;
         }
     }
-
+    __syncthreads();
+    
     if (lane == WARP_SIZE -1){
         sumOutput[warpIdx] = input[idx] + element;
     }
@@ -65,6 +67,7 @@ __global__ void scan_kernel(int* input, int* sumOutput)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     exclusive_scan_warp(input, sumOutput, idx);
+    __syncthreads();
 }
 
 __global__ void scan_add_prefixsum(int* input, int* prefixSum)
@@ -73,6 +76,7 @@ __global__ void scan_add_prefixsum(int* input, int* prefixSum)
     const unsigned int warpIdx = idx/WARP_SIZE;
 
     input[idx] += prefixSum[warpIdx];
+    __syncthreads();
 }
 
 // N is the logical size of the input and output arrays, however
@@ -97,6 +101,23 @@ void exclusive_scan(int* input, int N, int* result)
     // to CUDA kernel functions (that you must write) to implement the
     // scan.
 
+    // if (N == 64){
+    //     int* sumOutput;
+    //     int* sumOutputResult;
+
+    //     cudaMalloc((void **)&sumOutput, sizeof(int) * (N/WARP_SIZE));
+    //     cudaMalloc((void **)&sumOutputResult, sizeof(int) * (N/WARP_SIZE));
+
+    //     int gridSize = N/THREADS_PER_BLOCK;
+    //     scan_kernel<<<1, 32>>>(result, sumOutput);
+        
+    //     int* serialResult = new int[N/WARP_SIZE];
+    //     cudaMemcpy(serialResult, sumOutput, sizeof(int)*N/WARP_SIZE, cudaMemcpyDeviceToHost);
+    //     for (int i = 0; i<N/WARP_SIZE; i++){
+    //         std::cout << serialResult[i] << std::endl;
+    //     }
+    //     return;
+    // }
     if (N <= THREADS_PER_BLOCK) {
         int* serialInput = new int[N];
         int* serialResult = new int[N];
@@ -107,19 +128,25 @@ void exclusive_scan(int* input, int N, int* result)
             serialResult[i] = accum;
             accum += serialInput[i];
         }
+        // for (int i = 0; i<N; i++){
+        //     std::cout << serialResult[i] << std::endl;
+        // }
         cudaMemcpy(result, serialResult, sizeof(int)*N, cudaMemcpyHostToDevice);
     } else {
-        int* sumOutput;
-        int* sumOutputResult;
+        int* recursiveInput;
+        // int* recursiveOutput;
 
-        cudaMalloc((void **)&sumOutput, sizeof(int) * (N/WARP_SIZE));
-        cudaMalloc((void **)&sumOutputResult, sizeof(int) * (N/WARP_SIZE));
+        int gridSize = nextPow2(N)/THREADS_PER_BLOCK;
+        int recursiveInputSize = (gridSize*THREADS_PER_BLOCK)/WARP_SIZE;
+        cudaMalloc((void **)&recursiveInput, sizeof(int) * recursiveInputSize);
+        // cudaMalloc((void **)&recursiveOutput, sizeof(int) * (N/WARP_SIZE));
 
-        int gridSize = N/THREADS_PER_BLOCK;
-        scan_kernel<<<gridSize, THREADS_PER_BLOCK>>>(result, sumOutput);
-        exclusive_scan(sumOutput, N/WARP_SIZE, sumOutputResult);
+        scan_kernel<<<gridSize, THREADS_PER_BLOCK>>>(result, recursiveInput);
 
-        scan_add_prefixsum<<<gridSize, THREADS_PER_BLOCK>>>(result, sumOutput);
+        // cudaMemcpy(recursiveOutput, recursiveInput, sizeof(int) * (N/WARP_SIZE), cudaMemcpyDeviceToDevice);
+        exclusive_scan(recursiveInput, recursiveInputSize, recursiveInput);
+
+        scan_add_prefixsum<<<gridSize, THREADS_PER_BLOCK>>>(result, recursiveInput);
     }
     
 }
