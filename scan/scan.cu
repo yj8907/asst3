@@ -234,6 +234,26 @@ double cudaScanThrust(int* inarray, int* end, int* resultarray) {
     return overallDuration; 
 }
 
+__global__ void computeDiff(int* input, int N, int* output){
+
+    int idx = blockIdx.x*blockDim.x + threadIdx.x;
+
+    if (input[idx] == input[idx+1] && idx+1<N) {
+        output[idx] = 1;
+    } else {
+        if (idx < N) output[idx] = 0;
+    }
+
+    __syncthreads();
+}
+
+__global__ void assignIndex(int N, int* input, int* diff, int* output){
+    int idx = blockIdx.x*blockDim.x + threadIdx.x;
+    if (idx + 1 < N && input[idx] == input[idx+1]){
+        output[diff[idx]] = idx;
+    }
+    __syncthreads();
+}
 
 // find_repeats --
 //
@@ -255,7 +275,22 @@ int find_repeats(int* device_input, int length, int* device_output) {
     // must ensure that the results of find_repeats are correct given
     // the actual array length.
 
-    return 0; 
+    int rounded_length = nextPow2(length);
+    int* device_diff;
+    cudaMalloc((void **)&device_diff, rounded_length * sizeof(int));
+
+    int* host_diff = new int[length];
+
+    int gridSize = rounded_length/THREADS_PER_BLOCK + 1;
+    computeDiff<<<gridSize,THREADS_PER_BLOCK>>>(device_input, length, device_diff);
+    exclusive_scan(device_diff, length, device_diff);
+
+    assignIndex<<<gridSize, THREADS_PER_BLOCK>>>(length, device_input, device_diff, device_output);
+
+    int *repeatCount = new int[1];
+    cudaMemcpy(repeatCount, device_diff+length-1, 1*sizeof(int), cudaMemcpyDeviceToHost);
+
+    return repeatCount[0]; 
 }
 
 
